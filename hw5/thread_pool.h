@@ -38,14 +38,14 @@ decltype(auto) ApplyMove(F&& f, Tuple&& t) {
 
 struct ITask {
     virtual ~ITask() = default;
-    virtual void Run() = 0;
+    virtual void Run() noexcept = 0;
 };
 
 template <class F>
 class TaskModel final : public ITask {
 public:
     explicit TaskModel(F&& f) : f_(std::move(f)) {}
-    void Run() override { f_(); }
+    void Run() noexcept override { f_(); }
 
 private:
     F f_;
@@ -105,7 +105,7 @@ public:
         auto fn = std::decay_t<F>(std::forward<F>(f));
         auto tup = std::make_tuple(std::decay_t<Args>(std::forward<Args>(args))...);
 
-        auto job = [state, fn = std::move(fn), tup = std::move(tup)]() mutable {
+        auto job = [state, fn = std::move(fn), tup = std::move(tup)]() mutable noexcept {
             try {
                 if constexpr (std::is_void_v<Result>) {
                     detail::ApplyMove(std::move(fn), std::move(tup));
@@ -114,8 +114,11 @@ public:
                     state->SetValue(detail::ApplyMove(std::move(fn), std::move(tup)));
                 }
             } catch (...) {
-                state->SetException(std::current_exception());
-            }
+                try {
+                    state->SetException(std::current_exception());
+                } catch (...){
+                }
+            } 
         };
 
         {
@@ -137,8 +140,9 @@ public:
     }
 
 private:
-    void WorkerLoop() {
-        for (;;) {
+  void WorkerLoop() noexcept {
+    for (;;) {
+        try {
             std::unique_ptr<detail::ITask> task;
 
             {
@@ -156,8 +160,11 @@ private:
             }
 
             task->Run();
+        } catch (...) {
+            std::terminate();
         }
     }
+}
 
     std::vector<std::thread> workers_;
     std::deque<std::unique_ptr<detail::ITask>> tasks_;
